@@ -31,6 +31,7 @@ const WALLET_PATH = process.env.WALLET || '.wallet.json'
 
 async function main() {
    let cmd = process.argv[2]
+   let subcmd = process.argv[3]
 
 
    if (fs.existsSync('pending-txs.json')) {
@@ -41,90 +42,136 @@ async function main() {
    }
 
 
-   if (cmd == 'mint') {
-       await mint()
+   if (cmd === 'bel-20') {
+     if (subcmd === 'deploy') {
+       await bel20Deploy()
+     } else if (subcmd === 'mint') {
+       await bel20Mint()
+     } else if (subcmd === 'transfer') {
+       await bel20Transfer()
+     } else {
+       throw new Error(`unknown subcommand for bel-20: ${subcmd}`)
+     }
+   } else if (cmd === 'mint') {
+     await mintFile()
    } else if (cmd == 'wallet') {
-       await wallet()
+     await wallet()
    } else if (cmd == 'server') {
-       await server()
-   } else if (cmd == 'bell-20') {
-       await doge20()
+     await server()
    } else {
-       throw new Error(`unknown command: ${cmd}`)
+     throw new Error(`unknown command: ${cmd} ${subcmd}`)
    }
 }
 
 
-async function doge20() {
- let subcmd = process.argv[3]
+async function bel20Deploy(paramAddress, paramTicker, paramMax, paramLim) {
+  console.log("BEL-20 Deploy function called with:");
+  console.log("Address:", paramAddress);
+  console.log("Ticker:", paramTicker);
+  console.log("Max:", paramMax);
+  console.log("Limit:", paramLim);
 
+  const argAddress = paramAddress || process.argv[4]
+  const argTicker = paramTicker || process.argv[5]
+  const argMax = paramMax || process.argv[6]
+  const argLim = paramLim || process.argv[7]
 
- if (subcmd === 'mint') {
-   await doge20Transfer("mint")
- } else if (subcmd === 'transfer') {
-   await doge20Transfer()
- } else if (subcmd === 'deploy') {
-   await doge20Deploy()
- } else {
-   throw new Error(`unknown subcommand: ${subcmd}`)
- }
+  const bel20Tx = {
+    p: "bel-20",
+    op: "deploy",
+    tick: argTicker.toLowerCase(),
+    max: argMax,
+    lim: argLim
+  };
+
+  await inscribeAndBroadcast(argAddress, bel20Tx);
 }
 
 
-async function doge20Deploy() {
- const argAddress = process.argv[4]
- const argTicker = process.argv[5]
- const argMax = process.argv[6]
- const argLimit = process.argv[7]
+async function bel20Mint(paramAddress, paramTicker, paramAmount, paramRepeat = 1) {
+  console.log("BEL-20 Mint function called with:");
+  console.log("Address:", paramAddress);
+  console.log("Ticker:", paramTicker);
+  console.log("Amount:", paramAmount);
+  console.log("Repeat:", paramRepeat);
 
+  const argAddress = paramAddress || process.argv[4]
+  const argTicker = paramTicker || process.argv[5]
+  const argAmount = paramAmount || process.argv[6]
+  const argRepeat = Number(paramRepeat || process.argv[7]) || 1
 
- const doge20Tx = {
-   p: "bell-20",
-   op: "deploy",
-   tick: `${argTicker.toLowerCase()}`,
-   max: `${argMax}`,
-   lim: `${argLimit}`
- };
+  const bel20Tx = {
+    p: "bel-20",
+    op: "mint",
+    tick: argTicker.toLowerCase(),
+    amt: argAmount
+  };
 
-
- const parsedDoge20Tx = JSON.stringify(doge20Tx);
-
-
- // encode the doge20Tx as hex string
- const encodedDoge20Tx = Buffer.from(parsedDoge20Tx).toString('hex');
-
-
- console.log("Deploying bell-20 token...");
- await mint(argAddress, "text/plain;charset=utf-8", encodedDoge20Tx);
+  for (let i = 0; i < argRepeat; i++) {
+    console.log(`Minting BEL-20 token... ${i + 1} of ${argRepeat}`);
+    await inscribeAndBroadcast(argAddress, bel20Tx);
+  }
 }
 
 
-async function doge20Transfer(op = "transfer") {
- const argAddress = process.argv[4]
- const argTicker = process.argv[5]
- const argAmount = process.argv[6]
- const argRepeat = Number(process.argv[7]) || 1;
+async function bel20Transfer(paramFromAddress, paramToAddress, paramTicker, paramAmount) {
+  console.log("BEL-20 Transfer function called with:");
+  console.log("From Address:", paramFromAddress);
+  console.log("To Address:", paramToAddress);
+  console.log("Ticker:", paramTicker);
+  console.log("Amount:", paramAmount);
+
+  const argFromAddress = paramFromAddress || process.argv[4]
+  const argToAddress = paramToAddress || process.argv[5]
+  const argTicker = paramTicker || process.argv[6]
+  const argAmount = paramAmount || process.argv[7]
+
+  const bel20Tx = {
+    p: "bel-20",
+    op: "transfer",
+    tick: argTicker.toLowerCase(),
+    amt: argAmount
+  };
+
+  await inscribeAndBroadcast(argToAddress, bel20Tx);
+}
 
 
- const doge20Tx = {
-   p: "bell-20",
-   op,
-   tick: `${argTicker.toLowerCase()}`,
-   amt: `${argAmount}`
- };
+async function inscribeAndBroadcast(address, bel20Tx) {
+  const parsedBel20Tx = JSON.stringify(bel20Tx);
+  let contentType = "text/plain;charset=utf-8"
+  let data = Buffer.from(parsedBel20Tx)
+
+  console.log("Content Type:", contentType);
+  console.log("Data:", parsedBel20Tx);
+
+  let wallet = JSON.parse(fs.readFileSync(WALLET_PATH))
+  let txs = inscribe(wallet, new Address(address), contentType, data)
+  await broadcastAll(txs, false)
+}
 
 
- const parsedDoge20Tx = JSON.stringify(doge20Tx);
+async function mintFile(paramAddress, paramFilePath) {
+  console.log("Mint file function called with:");
+  console.log("Address:", paramAddress);
+  console.log("File Path:", paramFilePath);
 
+  const argAddress = paramAddress || process.argv[3]
+  const argFilePath = paramFilePath || process.argv[4]
 
- // encode the doge20Tx as hex string
- const encodedDoge20Tx = Buffer.from(parsedDoge20Tx).toString('hex');
+  if (!fs.existsSync(argFilePath)) {
+    throw new Error(`File not found: ${argFilePath}`);
+  }
 
+  let contentType = mime.lookup(argFilePath) || 'application/octet-stream'
+  let data = fs.readFileSync(argFilePath)
 
- for (let i = 0; i < argRepeat; i++) {
-   console.log("Minting bell-20 token...", i + 1, "of", argRepeat, "times");
-   await mint(argAddress, "text/plain;charset=utf-8", encodedDoge20Tx);
- }
+  console.log("Content Type:", contentType);
+  console.log("Data length:", data.length);
+
+  let wallet = JSON.parse(fs.readFileSync(WALLET_PATH))
+  let txs = inscribe(wallet, new Address(argAddress), contentType, data)
+  await broadcastAll(txs, false)
 }
 
 
@@ -274,52 +321,6 @@ async function walletSplit() {
 const MAX_SCRIPT_ELEMENT_SIZE = 520
 
 
-async function mint(paramAddress, paramContentTypeOrFilename, paramHexData, paramDelegateTxId = "") {
-   const argAddress = paramAddress || process.argv[3]
-   const argContentTypeOrFilename = paramContentTypeOrFilename || process.argv[4]
-   const argHexData = paramHexData || process.argv[5]
-   const argDelegateTxId = process.argv[6] !== undefined ? process.argv[6] : paramDelegateTxId;
-
-
-   let address = new Address(argAddress)
-   let contentType
-   let data
-
-
-   if(argDelegateTxId.length == 0) {  // content-type and data checks for regular inscriptions. not needed for delegate
-       if (fs.existsSync(argContentTypeOrFilename)) {
-           contentType = mime.contentType(mime.lookup(argContentTypeOrFilename))
-           data = fs.readFileSync(argContentTypeOrFilename)
-       } else {
-           contentType = argContentTypeOrFilename
-           if (!/^[a-fA-F0-9]*$/.test(argHexData)) throw new Error('data must be hex')
-           data = Buffer.from(argHexData, 'hex')
-       }
-
-
-       if (data.length == 0) {
-           throw new Error('no data to mint')
-       }
-
-
-       if (contentType.length > MAX_SCRIPT_ELEMENT_SIZE) {
-           throw new Error('content type too long')
-       }
-   }
-
-
-
-
-   let wallet = JSON.parse(fs.readFileSync(WALLET_PATH))
-
-
-   let txs = inscribe(wallet, address, contentType, data, argDelegateTxId)
-
-
-   await broadcastAll(txs, false)
-}
-
-
 async function broadcastAll(txs, retry) {
     for (let i = 0; i < txs.length; i++) {
         console.log(`broadcasting tx ${i + 1} of ${txs.length}`)
@@ -375,26 +376,19 @@ function numberToChunk(n) {
 
 
 function IdToChunk(inscription_id) {
-   // Remove "i0" if present at the end of the txid
-   let txid = "";
-   if (inscription_id.endsWith('i0')) {
-       txid = inscription_id.slice(0, -2);
-   } else {
-       throw new Error("provide your inscription id ending with 'i0'");
-   }
+  // Only use this function for delegate inscriptions
+  if (!inscription_id.endsWith('i0')) {
+    throw new Error("Delegate inscription ID must end with 'i0'");
+  }
 
+  let txid = inscription_id.slice(0, -2);
+  const reversedTxidBuffer = Buffer.from(txid, 'hex').reverse();
 
-   // Reverse the bytes of the TXID
-   const reversedTxidBuffer = Buffer.from(txid, 'hex').reverse();
-
-
-   return {
-       buf: reversedTxidBuffer,
-       len: 32,
-       opcodenum: 32
-   };
-
-
+  return {
+    buf: reversedTxidBuffer,
+    len: 32,
+    opcodenum: 32
+  };
 }
 
 
@@ -409,166 +403,126 @@ const MAX_CHUNK_LEN = 240
 const MAX_PAYLOAD_LEN = 1500
 
 
-function inscribe(wallet, address, contentType, data, delegateTxId = "") {
-   let txs = []
+function inscribe(wallet, address, contentType, data) {
+  console.log("Inscribe function called with:");
+  console.log("Content Type:", contentType);
+  console.log("Data length:", data.length);
 
+  let txs = []
 
+  let privateKey = new PrivateKey(wallet.privkey)
+  let publicKey = privateKey.toPublicKey()
 
+  let parts = []
+  let inscription = new Script()
 
-   let privateKey = new PrivateKey(wallet.privkey)
-   let publicKey = privateKey.toPublicKey()
+  console.log("Creating regular inscription");
+  while (data.length) {
+    let part = data.slice(0, Math.min(MAX_CHUNK_LEN, data.length))
+    data = data.slice(part.length)
+    parts.push(part)
+  }
 
+  inscription.chunks.push(bufferToChunk('ord'))
+  inscription.chunks.push(numberToChunk(parts.length))
+  inscription.chunks.push(bufferToChunk(contentType))
+  parts.forEach((part, n) => {
+    inscription.chunks.push(numberToChunk(parts.length - n - 1))
+    inscription.chunks.push(bufferToChunk(part))
+  })
 
-   let parts = []
-   let inscription = new Script()
+  let p2shInput
+  let lastLock
+  let lastPartial
 
+  while (inscription.chunks.length) {
+    let partial = new Script()
 
-   if (delegateTxId.length > 0) {  // in case we want to inscribe a delegate
-           inscription.chunks.push(bufferToChunk('ord'))
-           inscription.chunks.push(numberToChunk(1))  // push 1 for content type
-           inscription.chunks.push(numberToChunk(0))  // push empty content type
-           inscription.chunks.push(numberToChunk(0))  // push 0 for data
-           inscription.chunks.push(numberToChunk(0))  // push empty data
-           inscription.chunks.push(numberToChunk(11))  // push 11 for delegate
-           inscription.chunks.push(IdToChunk(delegateTxId))  //convert inscription id to txid to push (data should be a string with inscription id in this case)
+    if (txs.length == 0) {
+      partial.chunks.push(inscription.chunks.shift())
+    }
 
+    while (partial.toBuffer().length <= MAX_PAYLOAD_LEN && inscription.chunks.length) {
+      partial.chunks.push(inscription.chunks.shift())
+      partial.chunks.push(inscription.chunks.shift())
+    }
 
-   } else {  // in case we want to inscribe a regular inscription with data
+    if (partial.toBuffer().length > MAX_PAYLOAD_LEN) {
+      inscription.chunks.unshift(partial.chunks.pop())
+      inscription.chunks.unshift(partial.chunks.pop())
+    }
 
+    let lock = new Script()
+    lock.chunks.push(bufferToChunk(publicKey.toBuffer()))
+    lock.chunks.push(opcodeToChunk(Opcode.OP_CHECKSIGVERIFY))
+    partial.chunks.forEach(() => {
+      lock.chunks.push(opcodeToChunk(Opcode.OP_DROP))
+    })
+    lock.chunks.push(opcodeToChunk(Opcode.OP_TRUE))
 
-       while (data.length) {
-           let part = data.slice(0, Math.min(MAX_CHUNK_LEN, data.length))
-           data = data.slice(part.length)
-           parts.push(part)
-       }
+    let lockhash = Hash.ripemd160(Hash.sha256(lock.toBuffer()))
 
+    let p2sh = new Script()
+    p2sh.chunks.push(opcodeToChunk(Opcode.OP_HASH160))
+    p2sh.chunks.push(bufferToChunk(lockhash))
+    p2sh.chunks.push(opcodeToChunk(Opcode.OP_EQUAL))
 
-       inscription.chunks.push(bufferToChunk('ord'))
-       inscription.chunks.push(numberToChunk(parts.length))
-       inscription.chunks.push(bufferToChunk(contentType))
-       parts.forEach((part, n) => {
-           inscription.chunks.push(numberToChunk(parts.length - n - 1))
-           inscription.chunks.push(bufferToChunk(part))
-       })
+    let p2shOutput = new Transaction.Output({
+      script: p2sh,
+      satoshis: 100000
+    })
 
+    let tx = new Transaction()
+    if (p2shInput) tx.addInput(p2shInput)
+    tx.addOutput(p2shOutput)
+    fund(wallet, tx)
 
-   }
+    if (p2shInput) {
+      let signature = Transaction.sighash.sign(tx, privateKey, Signature.SIGHASH_ALL, 0, lastLock)
+      let txsignature = Buffer.concat([signature.toBuffer(), Buffer.from([Signature.SIGHASH_ALL])])
 
+      let unlock = new Script()
+      unlock.chunks = unlock.chunks.concat(lastPartial.chunks)
+      unlock.chunks.push(bufferToChunk(txsignature))
+      unlock.chunks.push(bufferToChunk(lastLock.toBuffer()))
+      tx.inputs[0].setScript(unlock)
+    }
 
-   let p2shInput
-   let lastLock
-   let lastPartial
+    updateWallet(wallet, tx)
+    txs.push(tx)
 
+    p2shInput = new Transaction.Input({
+      prevTxId: tx.hash,
+      outputIndex: 0,
+      output: tx.outputs[0],
+      script: ''
+    })
 
-   while (inscription.chunks.length) {
-       let partial = new Script()
+    p2shInput.clearSignatures = () => {}
+    p2shInput.getSignatures = () => {}
 
+    lastLock = lock
+    lastPartial = partial
+  }
 
-       if (txs.length == 0) {
-           partial.chunks.push(inscription.chunks.shift())
-       }
+  let tx = new Transaction()
+  tx.addInput(p2shInput)
+  tx.to(address, 100000)
+  fund(wallet, tx)
 
+  let signature = Transaction.sighash.sign(tx, privateKey, Signature.SIGHASH_ALL, 0, lastLock)
+  let txsignature = Buffer.concat([signature.toBuffer(), Buffer.from([Signature.SIGHASH_ALL])])
 
-       while (partial.toBuffer().length <= MAX_PAYLOAD_LEN && inscription.chunks.length) {
-           partial.chunks.push(inscription.chunks.shift())
-           partial.chunks.push(inscription.chunks.shift())
-       }
+  let unlock = new Script()
+  unlock.chunks = unlock.chunks.concat(lastPartial.chunks)
+  unlock.chunks.push(bufferToChunk(txsignature))
+  unlock.chunks.push(bufferToChunk(lastLock.toBuffer()))
+  tx.inputs[0].setScript(unlock)
 
+  updateWallet(wallet, tx)
+  txs.push(tx)
 
-       if (partial.toBuffer().length > MAX_PAYLOAD_LEN) {
-           inscription.chunks.unshift(partial.chunks.pop())
-           inscription.chunks.unshift(partial.chunks.pop())
-       }
-
-
-       let lock = new Script()
-       lock.chunks.push(bufferToChunk(publicKey.toBuffer()))
-       lock.chunks.push(opcodeToChunk(Opcode.OP_CHECKSIGVERIFY))
-       partial.chunks.forEach(() => {
-           lock.chunks.push(opcodeToChunk(Opcode.OP_DROP))
-       })
-       lock.chunks.push(opcodeToChunk(Opcode.OP_TRUE))
-
-
-       let lockhash = Hash.ripemd160(Hash.sha256(lock.toBuffer()))
-
-
-       let p2sh = new Script()
-       p2sh.chunks.push(opcodeToChunk(Opcode.OP_HASH160))
-       p2sh.chunks.push(bufferToChunk(lockhash))
-       p2sh.chunks.push(opcodeToChunk(Opcode.OP_EQUAL))
-
-
-       let p2shOutput = new Transaction.Output({
-           script: p2sh,
-           satoshis: 100000
-       })
-
-
-       let tx = new Transaction()
-       if (p2shInput) tx.addInput(p2shInput)
-       tx.addOutput(p2shOutput)
-       fund(wallet, tx)
-
-
-       if (p2shInput) {
-           let signature = Transaction.sighash.sign(tx, privateKey, Signature.SIGHASH_ALL, 0, lastLock)
-           let txsignature = Buffer.concat([signature.toBuffer(), Buffer.from([Signature.SIGHASH_ALL])])
-
-
-           let unlock = new Script()
-           unlock.chunks = unlock.chunks.concat(lastPartial.chunks)
-           unlock.chunks.push(bufferToChunk(txsignature))
-           unlock.chunks.push(bufferToChunk(lastLock.toBuffer()))
-           tx.inputs[0].setScript(unlock)
-       }
-
-
-       updateWallet(wallet, tx)
-       txs.push(tx)
-
-
-       p2shInput = new Transaction.Input({
-           prevTxId: tx.hash,
-           outputIndex: 0,
-           output: tx.outputs[0],
-           script: ''
-       })
-
-
-       p2shInput.clearSignatures = () => {}
-       p2shInput.getSignatures = () => {}
-
-
-
-
-       lastLock = lock
-       lastPartial = partial
-   }
-
-
-   let tx = new Transaction()
-   tx.addInput(p2shInput)
-   tx.to(address, 100000)
-   fund(wallet, tx)
-
-
-   let signature = Transaction.sighash.sign(tx, privateKey, Signature.SIGHASH_ALL, 0, lastLock)
-   let txsignature = Buffer.concat([signature.toBuffer(), Buffer.from([Signature.SIGHASH_ALL])])
-
-
-   let unlock = new Script()
-   unlock.chunks = unlock.chunks.concat(lastPartial.chunks)
-   unlock.chunks.push(bufferToChunk(txsignature))
-   unlock.chunks.push(bufferToChunk(lastLock.toBuffer()))
-   tx.inputs[0].setScript(unlock)
-
-
-   updateWallet(wallet, tx)
-   txs.push(tx)
-
-
-   return txs
+  return txs
 }
 
 
