@@ -28,10 +28,13 @@ async function main() {
    let cmd = process.argv[2]
    let subcmd = process.argv[3]
 
+   // Check for pending transactions
    if (fs.existsSync('pending-txs.json')) {
-       console.log('found pending-txs.json. rebroadcasting...')
-       const txs = JSON.parse(fs.readFileSync('pending-txs.json'))
-       await broadcastAll(txs.map(tx => new Transaction(tx)), false)
+       console.log('Found pending-txs.json. Attempting to broadcast pending transactions...')
+       const pendingTxs = JSON.parse(fs.readFileSync('pending-txs.json'))
+       await broadcastAll(pendingTxs.map(tx => new Transaction(tx)), false)
+       // Remove the pending-txs.json file after attempting to broadcast
+       fs.unlinkSync('pending-txs.json')
        return
    }
 
@@ -344,6 +347,7 @@ async function broadcastAll(txs, retry) {
     let lastGenesisTxId = null;
     let successfulMints = 0;
     let failedMints = 0;
+    let pendingTxs = [];
 
     console.log(`Starting to broadcast ${txs.length} transactions`);
 
@@ -352,6 +356,15 @@ async function broadcastAll(txs, retry) {
             if (!txs[i]) {
                 throw new Error(`Invalid transaction at index ${i}`);
             }
+
+            // Check for unsupported input script types
+            for (const input of txs[i].inputs) {
+                if (input.script.toHex().startsWith('a914')) {
+                    console.warn(`Unsupported input script type: ${input.script.toHex()}`);
+                    throw new Error(`Unsupported input script type: ${input.script.toHex()}`);
+                }
+            }
+
             console.log(`Broadcasting transaction ${i + 1} of ${txs.length}`);
             await broadcast(txs[i], false);
             if (i % 2 === 1) {  // This is a reveal transaction
@@ -372,13 +385,22 @@ async function broadcastAll(txs, retry) {
             console.error(`Failed to mint transaction ${Math.floor(i/2) + 1}. Error: ${e.message}`);
             console.error(`Transaction details: ${JSON.stringify(txs[i], null, 2)}`);
             
-            if (i % 2 === 0) {
-                i++;  // Skip the next transaction if this was a commit transaction
-            }
+            // Save pending transactions and break the loop
+            pendingTxs = txs.slice(i);
+            break;
         }
     }
 
-    console.log(`Broadcast complete. Successful mints: ${successfulMints}, Failed mints: ${failedMints}`);
+    console.log(`Broadcast stopped. Successful mints: ${successfulMints}, Failed mints: ${failedMints}`);
+
+    if (pendingTxs.length > 0) {
+        const pendingTxsFile = 'pending-txs.json';
+        fs.writeFileSync(pendingTxsFile, JSON.stringify(pendingTxs, null, 2));
+        console.log(`Saved ${pendingTxs.length} pending transactions to ${pendingTxsFile}`);
+        console.log(`Please run the script again to attempt broadcasting the pending transactions.`);
+    } else {
+        console.log(`All transactions were successfully broadcast.`);
+    }
 }
 
 async function wallet() {
@@ -822,7 +844,9 @@ async function mintBellmap() {
         throw new Error('Invalid start number for Bellmap minting')
     }
 
-    let address = new Address(argAddress)
+    if (!isValidAddress(argAddress)) {
+      throw new Error('Invalid address format');
+    }
 
     console.log(`Minting Bellmap inscription${start === end ? '' : 's'} from ${start} to ${end}`)
 
@@ -832,7 +856,7 @@ async function mintBellmap() {
         const contentType = 'text/plain'
 
         let wallet = JSON.parse(fs.readFileSync(WALLET_PATH))
-        let txs = inscribe(wallet, address, contentType, data)
+        let txs = inscribe(wallet, argAddress, contentType, data)
         console.log(`Minting ${i}.bellmap`)
         
         try {
@@ -854,6 +878,7 @@ async function broadcastAll(txs, retry) {
     let lastGenesisTxId = null;
     let successfulMints = 0;
     let failedMints = 0;
+    let pendingTxs = [];
 
     console.log(`Starting to broadcast ${txs.length} transactions`);
 
@@ -882,13 +907,22 @@ async function broadcastAll(txs, retry) {
             console.error(`Failed to mint transaction ${Math.floor(i/2) + 1}. Error: ${e.message}`);
             console.error(`Transaction details: ${JSON.stringify(txs[i], null, 2)}`);
             
-            if (i % 2 === 0) {
-                i++;  // Skip the next transaction if this was a commit transaction
-            }
+            // Save pending transactions and break the loop
+            pendingTxs = txs.slice(i);
+            break;
         }
     }
 
-    console.log(`Broadcast complete. Successful mints: ${successfulMints}, Failed mints: ${failedMints}`);
+    console.log(`Broadcast stopped. Successful mints: ${successfulMints}, Failed mints: ${failedMints}`);
+
+    if (pendingTxs.length > 0) {
+        const pendingTxsFile = 'pending-txs.json';
+        fs.writeFileSync(pendingTxsFile, JSON.stringify(pendingTxs, null, 2));
+        console.log(`Saved ${pendingTxs.length} pending transactions to ${pendingTxsFile}`);
+        console.log(`Please run the script again to attempt broadcasting the pending transactions.`);
+    } else {
+        console.log(`All transactions were successfully broadcast.`);
+    }
 }
 
 function getRandomMintedMessage() {
@@ -912,9 +946,11 @@ async function main() {
     let subcmd = process.argv[3]
 
     if (fs.existsSync('pending-txs.json')) {
-        console.log('found pending-txs.json. rebroadcasting...')
-        const txs = JSON.parse(fs.readFileSync('pending-txs.json'))
-        await broadcastAll(txs.map(tx => new Transaction(tx)), false)
+        console.log('Found pending-txs.json. Attempting to broadcast pending transactions...')
+        const pendingTxs = JSON.parse(fs.readFileSync('pending-txs.json'))
+        await broadcastAll(pendingTxs.map(tx => new Transaction(tx)), false)
+        // Remove the pending-txs.json file after attempting to broadcast THIS NEEDS TO BE FIXED 
+        fs.unlinkSync('pending-txs.json')
         return
     }
 
@@ -945,7 +981,5 @@ async function main() {
 console.log("DEBUG: About to call main()");
 main().catch(e => {
     let reason = e.response && e.response.data && e.response.data.error && e.response.data.error.message
-    console.error(reason ? e.message + ':' + reason : e.message)
-})
     console.error(reason ? e.message + ':' + reason : e.message)
 })
